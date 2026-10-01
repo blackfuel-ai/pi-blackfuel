@@ -11,6 +11,11 @@ interface OpenAIModel {
 	supported_parameters?: string[];
 	input_modalities?: string[];
 	reasoning?: { supported_efforts?: string[] };
+	task?: string;
+	lifecycle?: string;
+	deprecation?: { sunset?: string; successor?: string };
+	// USD per token (per request for "request"), as decimal strings.
+	pricing?: { prompt?: string; completion?: string; input_cache_read?: string };
 }
 
 interface OpenAIModelsResponse {
@@ -35,6 +40,23 @@ function thinkingLevelMap(efforts: string[]): Partial<Record<ThinkingLevel, stri
 		map[level] = efforts.includes(level) ? level : null;
 	}
 	return map;
+}
+
+// Pi's cost fields are USD per million tokens. Rounding to 6 decimals strips
+// the float noise of the multiplication (0.00000014 * 1e6 = 0.13999999999999999).
+function perMillion(usdPerToken: string | undefined): number {
+	return Number((Number(usdPerToken ?? 0) * 1e6).toFixed(6));
+}
+
+// Pi shows no lifecycle state, so a deprecated model's name carries its sunset
+// date and successor, the facts a user needs to move off it in time.
+function displayName(model: OpenAIModel): string {
+	const name = model.name ?? model.id;
+	if (model.lifecycle !== "deprecated") return name;
+	const notes = ["deprecated"];
+	if (model.deprecation?.sunset) notes.push(`sunset ${model.deprecation.sunset.slice(0, 10)}`);
+	if (model.deprecation?.successor) notes.push(`use ${model.deprecation.successor}`);
+	return `${name} (${notes.join(", ")})`;
 }
 
 export default async function (pi: ExtensionAPI): Promise<void> {
@@ -90,7 +112,9 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			return;
 		}
 
-		models = payload.data;
+		// Pi registers every model as a chat model; embedding and other
+		// non-chat models would be selectable and fail on every request.
+		models = payload.data.filter((model) => (model.task ?? "text-generation") === "text-generation");
 	} catch (error) {
 		console.warn(
 			`[blackfuel-provider] Failed to reach Blackfuel API: ${error instanceof Error ? error.message : String(error)}. Provider will not be registered.`,
@@ -133,12 +157,18 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 			const efforts = model.reasoning?.supported_efforts ?? [];
 			return {
 				id: model.id,
-				name: model.name ?? model.id,
+				name: displayName(model),
 				reasoning,
 				thinkingLevelMap:
 					reasoning && efforts.length > 0 ? thinkingLevelMap(efforts) : undefined,
 				input,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				cost: {
+				input: perMillion(model.pricing?.prompt),
+				output: perMillion(model.pricing?.completion),
+				cacheRead: perMillion(model.pricing?.input_cache_read),
+				// Blackfuel bills no separate cache write.
+				cacheWrite: 0,
+			},
 				contextWindow,
 				maxTokens: Math.min(16384, contextWindow),
 				compat: {
