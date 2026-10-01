@@ -47,6 +47,10 @@ Select a model via the model selector (`Ctrl+P`) or by typing:
 /model blackfuel
 ```
 
+### What is registered
+
+Only text-generation models are registered; embedding models in `/v1/models` are left out because pi can only use chat models. Each model carries its Blackfuel pricing, so pi's usage footer shows real cost. A deprecated model's name carries its sunset date and successor, e.g. `Llama-3.3-70B-Instruct (deprecated, sunset 2026-10-03, use deepseek-ai/DeepSeek-V4-Flash-0731)`.
+
 ### Thinking levels
 
 Models that accept `reasoning_effort` get pi thinking levels, selected with `/thinking`. Only the efforts a model lists in `/v1/models` are offered: Kimi K3, for example, offers `low`, `high` and `max`, and has no `off`.
